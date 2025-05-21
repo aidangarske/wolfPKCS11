@@ -8339,6 +8339,140 @@ static CK_RV test_x509_find_by_type(void* args)
 }
 
 
+static CK_RV test_rsa_modulus(void* args)
+{
+    CK_RV ret;
+    CK_SESSION_HANDLE session = *(CK_SESSION_HANDLE*)args;
+    CK_OBJECT_HANDLE privKey1 = CK_INVALID_HANDLE;  /* Without modulus */
+    CK_OBJECT_HANDLE privKey2 = CK_INVALID_HANDLE;  /* With modulus    */
+    CK_BBOOL true = CK_TRUE;
+    CK_BBOOL false = CK_FALSE;
+    CK_KEY_TYPE keyType = CKK_RSA;
+    CK_ULONG modulusBits = 2048;
+    CK_ULONG publicExponent = 65537;
+
+    /* Test 1: Create RSA key without CKA_MODULUS
+     * (auto-generate RSA modulus) */
+    CK_ATTRIBUTE privTemplate1[] = {
+        { CKA_TOKEN, &true, sizeof(true) },
+        { CKA_PRIVATE, &true, sizeof(true) },
+        { CKA_SENSITIVE, &true, sizeof(true) },
+        { CKA_EXTRACTABLE, &false, sizeof(false) },
+        { CKA_KEY_TYPE, &keyType, sizeof(keyType) },
+        { CKA_MODULUS_BITS, &modulusBits, sizeof(modulusBits) },
+        { CKA_PUBLIC_EXPONENT, &publicExponent, sizeof(publicExponent) }
+    };
+
+    ret = funcList->C_CreateObject(session, privTemplate1,
+        sizeof(privTemplate1) / sizeof(CK_ATTRIBUTE), &privKey1);
+    CHECK_CKR(ret, "C_CreateObject private key without modulus");
+
+    /* Verify the modulus was actually generated */
+    CK_ATTRIBUTE getTemplate[] = {
+        { CKA_MODULUS, NULL, 0 }
+    };
+
+    /* First get the length */
+    ret = funcList->C_GetAttributeValue(session, privKey1, getTemplate, 1);
+    CHECK_CKR(ret, "C_GetAttributeValue length");
+
+    if (getTemplate[0].ulValueLen == 0) {
+        ret = CKR_GENERAL_ERROR;
+        CHECK_CKR(ret, "Modulus was not generated");
+    }
+
+    /* Allocate and get the actual modulus */
+    unsigned char* modulus = XMALLOC(getTemplate[0].ulValueLen,
+        NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (modulus == NULL) {
+        ret = CKR_HOST_MEMORY;
+        CHECK_CKR(ret, "Memory allocation failed");
+    }
+
+    getTemplate[0].pValue = modulus;
+    ret = funcList->C_GetAttributeValue(session, privKey1, getTemplate, 1);
+    CHECK_CKR(ret, "C_GetAttributeValue");
+
+    /* Verify modulus is not all zeros */
+    int allZeros = 1;
+    for (CK_ULONG i = 0; i < getTemplate[0].ulValueLen; i++) {
+        if (modulus[i] != 0) {
+            allZeros = 0;
+            break;
+        }
+    }
+
+    if (allZeros) {
+        ret = CKR_GENERAL_ERROR;
+        CHECK_CKR(ret, "Generated modulus is all zeros");
+    }
+
+    XFREE(modulus, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+
+    /* Test 2: Create RSA key with CKA_MODULUS set */
+    unsigned char modulus2[256];  /* 2048 bits = 256 bytes */
+    CK_ATTRIBUTE privTemplate2[] = {
+        { CKA_TOKEN, &true, sizeof(true) },
+        { CKA_PRIVATE, &true, sizeof(true) },
+        { CKA_SENSITIVE, &true, sizeof(true) },
+        { CKA_EXTRACTABLE, &false, sizeof(false) },
+        { CKA_KEY_TYPE, &keyType, sizeof(keyType) },
+        { CKA_MODULUS, modulus2, sizeof(modulus2) },
+        { CKA_PUBLIC_EXPONENT, &publicExponent, sizeof(publicExponent) }
+    };
+
+    ret = funcList->C_CreateObject(session, privTemplate2,
+        sizeof(privTemplate2) / sizeof(CK_ATTRIBUTE), &privKey2);
+    CHECK_CKR(ret, "C_CreateObject private key with modulus");
+
+    /* Verify both keys can be found by searching */
+    CK_ATTRIBUTE aSearchAttributes[] = {
+        { CKA_KEY_TYPE, &keyType, sizeof(keyType) }
+    };
+
+    ret = funcList->C_FindObjectsInit(session, aSearchAttributes,
+        sizeof(aSearchAttributes) / sizeof(CK_ATTRIBUTE));
+    CHECK_CKR(ret, "C_FindObjectsInit");
+
+    CK_ULONG ulObjectCount = 0;
+    CK_OBJECT_HANDLE hObject = CK_INVALID_HANDLE;
+    CK_BBOOL bKey1Found = CK_FALSE;
+    CK_BBOOL bKey2Found = CK_FALSE;
+
+    /* Find the keys */
+    while (ret == CKR_OK) {
+        ret = funcList->C_FindObjects(session, &hObject, 1, &ulObjectCount);
+        CHECK_CKR(ret, "C_FindObjects");
+
+        if (ulObjectCount == 0) {
+            break;
+        }
+
+        if (hObject == privKey1) {
+            bKey1Found = CK_TRUE;
+        }
+        if (hObject == privKey2) {
+            bKey2Found = CK_TRUE;
+        }
+    }
+
+    /* Clean up */
+    ret = funcList->C_FindObjectsFinal(session);
+    CHECK_CKR(ret, "C_FindObjectsFinal");
+
+    if (!bKey1Found) {
+        ret = CKR_GENERAL_ERROR;
+        CHECK_CKR(ret, "RSA key without modulus not found by search");
+    }
+    if (!bKey2Found) {
+        ret = CKR_GENERAL_ERROR;
+        CHECK_CKR(ret, "RSA key with modulus not found by search");
+    }
+
+    return ret;
+}
+
+
 static CK_RV test_random(void* args)
 {
     CK_SESSION_HANDLE session = *(CK_SESSION_HANDLE*)args;
@@ -8631,6 +8765,7 @@ static TEST_FUNC testFunc[] = {
     PKCS11TEST_FUNC_SESS_DECL(test_random),
     PKCS11TEST_FUNC_SESS_DECL(test_x509),
     PKCS11TEST_FUNC_SESS_DECL(test_x509_find_by_type),
+    PKCS11TEST_FUNC_SESS_DECL(test_rsa_modulus),
 };
 static int testFuncCnt = sizeof(testFunc) / sizeof(*testFunc);
 

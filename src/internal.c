@@ -5577,6 +5577,7 @@ int WP11_Object_SetRsaKey(WP11_Object* object, unsigned char** data,
 {
     int ret;
     RsaKey* key;
+    WC_RNG rng;
 
     if (object->onToken)
         WP11_Lock_LockRW(object->lock);
@@ -5584,26 +5585,39 @@ int WP11_Object_SetRsaKey(WP11_Object* object, unsigned char** data,
     key = &object->data.rsaKey;
     ret = wc_InitRsaKey_ex(key, NULL, object->slot->devId);
     if (ret == 0) {
-        ret = SetMPI(&key->n, data[0], (int)len[0]);
-        if (ret == 0)
-           ret = SetMPI(&key->d, data[1], (int)len[1]);
-        if (ret == 0)
-           ret = SetMPI(&key->p, data[2], (int)len[2]);
-        if (ret == 0)
-           ret = SetMPI(&key->q, data[3], (int)len[3]);
-        if (ret == 0)
-           ret = SetMPI(&key->dP, data[4], (int)len[4]);
-        if (ret == 0)
-           ret = SetMPI(&key->dQ, data[5], (int)len[5]);
-        if (ret == 0)
-           ret = SetMPI(&key->u, data[6], (int)len[6]);
-        if (ret == 0) {
-            /* Public exponent defaults to 65537 in PKCS11 > 2.11 */
-            if (len[7] > 0)
-                ret = SetMPI(&key->e, data[7], (int)len[7]);
-            else {
-                byte defaultPublic[] = {0x01, 0x00, 0x01};
-                ret = SetMPI(&key->e, defaultPublic, sizeof(defaultPublic));
+        /* Generate a new RSA key pair with default
+         * size if modulus not set */
+        if (len[0] == 0) {
+            ret = Rng_New(&object->slot->token.rng,
+                &object->slot->token.rngLock, &rng);
+            if (ret == 0) {
+                word32 keySize = (object->size > 0) ? object->size : 2048;
+                ret = wc_MakeRsaKey(key, keySize, WC_RSA_EXPONENT, &rng);
+                Rng_Free(&rng);
+            }
+        } else {
+            /* Set the provided key components */
+            ret = SetMPI(&key->n, data[0], (int)len[0]);
+            if (ret == 0)
+               ret = SetMPI(&key->d, data[1], (int)len[1]);
+            if (ret == 0)
+               ret = SetMPI(&key->p, data[2], (int)len[2]);
+            if (ret == 0)
+               ret = SetMPI(&key->q, data[3], (int)len[3]);
+            if (ret == 0)
+               ret = SetMPI(&key->dP, data[4], (int)len[4]);
+            if (ret == 0)
+               ret = SetMPI(&key->dQ, data[5], (int)len[5]);
+            if (ret == 0)
+               ret = SetMPI(&key->u, data[6], (int)len[6]);
+            if (ret == 0) {
+                /* Public exponent defaults to 65537 in PKCS11 > 2.11 */
+                if (len[7] > 0)
+                    ret = SetMPI(&key->e, data[7], (int)len[7]);
+                else {
+                    byte defaultPublic[] = {0x01, 0x00, 0x01};
+                    ret = SetMPI(&key->e, defaultPublic, sizeof(defaultPublic));
+                }
             }
         }
         if (ret == 0) {
@@ -5640,6 +5654,7 @@ int WP11_Object_SetRsaKey(WP11_Object* object, unsigned char** data,
     return ret;
 }
 #endif
+
 
 #ifdef HAVE_ECC
 
