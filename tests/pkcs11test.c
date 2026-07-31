@@ -2225,6 +2225,50 @@ static CK_RV test_object(void* args)
     return ret;
 }
 
+#ifdef WOLFSSL_WOLFHSM_DEVID
+static CK_RV test_default_devid(void* args)
+{
+    CK_SESSION_HANDLE session = *(CK_SESSION_HANDLE*)args;
+    CK_RV ret;
+    CK_RV destroyRet;
+    CK_OBJECT_HANDLE obj = CK_INVALID_HANDLE;
+    CK_ULONG devId = 0;
+    static byte keyData[] = { 0x00 };
+    CK_ATTRIBUTE createTmpl[] = {
+        { CKA_CLASS,    &secretKeyClass, sizeof(secretKeyClass) },
+        { CKA_KEY_TYPE, &genericKeyType, sizeof(genericKeyType) },
+        { CKA_VALUE,    keyData,         sizeof(keyData)        },
+    };
+    CK_ATTRIBUTE getTmpl[] = {
+        { CKA_WOLFSSL_DEVID, &devId, sizeof(devId) },
+    };
+
+    ret = funcList->C_CreateObject(session, createTmpl,
+                                   sizeof(createTmpl) / sizeof(*createTmpl),
+                                   &obj);
+    CHECK_CKR(ret, "Create object with default device ID");
+    if (ret == CKR_OK) {
+        ret = funcList->C_GetAttributeValue(session, obj, getTmpl,
+                                            sizeof(getTmpl) /
+                                            sizeof(*getTmpl));
+        CHECK_CKR(ret, "Get default device ID");
+    }
+    if (ret == CKR_OK) {
+        CHECK_COND(devId == (CK_ULONG)WOLFSSL_WOLFHSM_DEVID, ret,
+                   "Default device ID");
+    }
+    if (obj != CK_INVALID_HANDLE) {
+        destroyRet = funcList->C_DestroyObject(session, obj);
+
+        if (ret == CKR_OK)
+            ret = destroyRet;
+        CHECK_CKR(destroyRet, "Destroy default device ID object");
+    }
+
+    return ret;
+}
+#endif
+
 static CK_RV test_copy_object_deep_copy(void* args)
 {
     CK_SESSION_HANDLE session = *(CK_SESSION_HANDLE*)args;
@@ -18019,6 +18063,9 @@ static TEST_FUNC testFunc[] = {
 #endif
     PKCS11TEST_FUNC_SESS_DECL(test_op_state_fail),
     PKCS11TEST_FUNC_SESS_DECL(test_object),
+#ifdef WOLFSSL_WOLFHSM_DEVID
+    PKCS11TEST_FUNC_SESS_DECL(test_default_devid),
+#endif
 #ifndef WOLFPKCS11_NSS
     PKCS11TEST_FUNC_SESS_DECL(test_create_session_obj_ro_session),
 #endif
