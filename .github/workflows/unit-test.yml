@@ -71,6 +71,16 @@ jobs:
     with:
       config: C_EXTRA_FLAGS="-DWOLFPKCS11_NO_ENV" --with-default-token-path=./store/default
       check: mkdir -p store && ./tests/pkcs11test
+  default_devid_no_store:
+    uses: ./.github/workflows/build-workflow.yml
+    with:
+      wolfssl_c_extra_flags: -DWC_NO_DEFAULT_DEVID
+      config: >-
+        --enable-singlethreaded --enable-pbkdf2
+        --with-pbkdf2-iterations=25
+        CFLAGS="-DWOLFPKCS11_NO_STORE -DWOLFPKCS11_DEFAULT_DEVID=7
+        -DWOLFPKCS11_PIN_KDF_SOFTWARE -DWC_NO_DEFAULT_DEVID"
+      check: ./tests/default_devid_pin_kdf_test
   no_aesgcm:
     uses: ./.github/workflows/build-workflow.yml
     with:

@@ -76,6 +76,13 @@
 #include <wolfpkcs11/internal.h>
 #include <wolfpkcs11/store.h>
 
+#if defined(WOLFPKCS11_PIN_KDF_SOFTWARE) && defined(WOLF_CRYPTO_CB_FIND)
+    #error WOLFPKCS11_PIN_KDF_SOFTWARE is incompatible with WOLF_CRYPTO_CB_FIND
+#elif defined(WOLFPKCS11_PIN_KDF_SOFTWARE) && defined(WOLF_CRYPTO_CB) && \
+      !defined(WC_NO_DEFAULT_DEVID)
+    #error WOLFPKCS11_PIN_KDF_SOFTWARE requires WC_NO_DEFAULT_DEVID
+#endif
+
 #ifdef WOLFPKCS11_TPM
     #include <wolftpm/tpm2_wrap.h>
     /* Hoisted: the store section's forward declaration is compiled out under
@@ -9420,6 +9427,10 @@ static int wp11_Slot_Init(WP11_Slot* slot, int id)
     if (ret == 0) {
     #if defined(WOLFPKCS11_TPM)
         ret = wp11_TpmInit(slot);
+    #elif defined(WOLFPKCS11_DEFAULT_DEVID)
+        /* Let embedded integrations route slot crypto through a device
+         * registered with wolfCrypt without enabling a TPM-specific backend. */
+        slot->devId = WOLFPKCS11_DEFAULT_DEVID;
     #elif defined (WOLFSSL_MAXQ10XX_CRYPTO)
         slot->devId = MAXQ_DEVICE_ID;
     #elif defined (WOLFSSL_STM32U5_DHUK)
@@ -9945,6 +9956,18 @@ static int HashPIN(char* pin, int pinLen, byte* seed, int seedLen, byte* hash,
                    int hashLen, WP11_Slot* slot)
 {
 #ifdef WOLFPKCS11_PBKDF2
+    int devId;
+
+    /* A provider whose regular key operations use a crypto device may keep
+     * the high-iteration PIN KDF local. This avoids turning one token login
+     * into hundreds of thousands of device transactions while preserving
+     * the configured PBKDF2 work factor. */
+#ifdef WOLFPKCS11_PIN_KDF_SOFTWARE
+    (void)slot;
+    devId = INVALID_DEVID;
+#else
+    devId = slot->devId;
+#endif
 #if defined(HAVE_FIPS) && defined(WOLFPKCS11_NSS)
     if (pinLen == 0) {
         /* For FIPS, use empty pin of HMAC_FIPS_MIN_KEY bytes when pinLen is 0.
@@ -9955,11 +9978,11 @@ static int HashPIN(char* pin, int pinLen, byte* seed, int seedLen, byte* hash,
         byte emptyPin[HMAC_FIPS_MIN_KEY];
         XMEMSET(emptyPin, 0, sizeof(emptyPin));
         return wc_PBKDF2_ex(hash, emptyPin, sizeof(emptyPin), seed, seedLen,
-            PBKDF2_ITERATIONS, hashLen, WC_SHA256, NULL, slot->devId);
+            PBKDF2_ITERATIONS, hashLen, WC_SHA256, NULL, devId);
     }
 #endif
     return wc_PBKDF2_ex(hash, (byte*)pin, pinLen, seed, seedLen,
-        PBKDF2_ITERATIONS, hashLen, WC_SHA256, NULL, slot->devId);
+        PBKDF2_ITERATIONS, hashLen, WC_SHA256, NULL, devId);
 #elif defined(HAVE_SCRYPT)
     /* Convert PIN into secret using scrypt algorithm. */
     (void)slot;
